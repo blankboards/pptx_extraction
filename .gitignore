@@ -1,13 +1,25 @@
-*.log
-*.tmp
-*.bak
+# 忽略 Python 字节码文件
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 忽略虚拟环境
+venv/
 .env
-cache/
+
+# 忽略输出目录
+output/
+*.txt  # 如果只想忽略特定输出文件，可改为 output/*.txt
+
+# 忽略日志文件
 logs/
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.tar
-*.zip
+*.log
+
+# 忽略临时文件
+*.tmp
+*.swp
+
+# 忽略系统文件
+.DS_Store  # macOS
+Thumbs.db  # Windows
