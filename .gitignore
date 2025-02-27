@@ -1,0 +1,13 @@
+*.log
+*.tmp
+*.bak
+__pycache__/
+.env
+cache/
+logs/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.tar
+*.zip
