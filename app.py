@@ -4,6 +4,7 @@
 
 import os
 import logging
+import time
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from modules.ppt_text_extraction import extract_text_from_ppt, extract_metadata, extract_text_from_ppt_legacy, extract_metadata_from_ppt_legacy
@@ -16,6 +17,7 @@ import warnings
 import socket
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
+import tempfile
 
 load_dotenv()
 
@@ -85,10 +87,11 @@ def process_ppt():
             logger.error("No file selected")
             return jsonify({"error": "No file selected"}), 400
 
-        file_path = os.path.abspath(os.path.join(OUTPUT_DIR, file.filename))
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        # 使用临时文件避免覆盖和权限问题
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, f"temp_{os.urandom(8).hex()}_{file.filename}")
+        logger.info(f"Saving file to temporary path: {file_path}")
         file.save(file_path)
-        logger.info(f"File saved to absolute path: {file_path}")
 
         if not validate_file_type(file_path, SUPPORTED_FORMATS):
             os.remove(file_path)
@@ -141,9 +144,16 @@ def process_ppt():
         future = executor.submit(process_file, file_path)
         optimized_text, output_file = future.result(timeout=120)
 
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            logger.info(f"Temporary file removed: {file_path}")
+        # 重试删除文件
+        for _ in range(3):  # 尝试 3 次
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"Temporary file removed: {file_path}")
+                break
+            except PermissionError:
+                logger.warning(f"Retrying file removal: {file_path}")
+                time.sleep(1)  # 等待 1 秒重试
 
         return jsonify({
             "message": "File processed successfully",
@@ -154,17 +164,32 @@ def process_ppt():
     except PermissionError as e:
         logger.error(f"Permission denied: {str(e)}", exc_info=True)
         if file_path and os.path.exists(file_path):
-            os.remove(file_path)
+            for _ in range(3):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Temporary file removed after permission error: {file_path}")
+                    break
+                except PermissionError:
+                    logger.warning(f"Retrying file removal after permission error: {file_path}")
+                    time.sleep(1)
         return jsonify({"error": "Permission denied"}), 403
     except TimeoutError:
         logger.error(f"Processing timed out for file: {file_path}")
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
+            logger.info(f"Temporary file removed after timeout: {file_path}")
         return jsonify({"error": "Processing timed out"}), 504
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}", exc_info=True)
         if file_path and os.path.exists(file_path):
-            os.remove(file_path)
+            for _ in range(3):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Temporary file removed after error: {file_path}")
+                    break
+                except PermissionError:
+                    logger.warning(f"Retrying file removal after error: {file_path}")
+                    time.sleep(1)
         return jsonify({"error": "Processing failed", "details": str(e)}), 500
 
 @app.route('/health', methods=['GET'])
