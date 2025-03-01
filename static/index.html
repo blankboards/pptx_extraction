@@ -98,7 +98,7 @@
                 const response = await fetch(API_ENDPOINT, {
                     method: 'POST',
                     body: formData,
-                    signal: AbortSignal.timeout(60000)
+                    signal: AbortSignal.timeout(600000)
                 });
 
                 const data = await response.json();
