@@ -1,36 +1,42 @@
-from modules.ppt_text_extraction import extract_text_from_ppt, extract_metadata
+from modules.ppt_text_extraction import extract_text_from_ppt, extract_metadata, extract_text_from_ppt_legacy
 from modules.image_extraction_t import extract_images_from_ppt_tesseract
-from modules.image_extraction_p import extract_images_from_ppt_paddleocr
+from modules.image_extraction_p import extract_images_from_ppt_paddleocr, extract_images_from_ppt_legacy
 from modules.ai_optimizer import optimize_text_with_ai
 from modules.utils import setup_logger, validate_file_type
 from modules.config import PPTX_FILE, OUTPUT_DIR, PPTX_FILE_2, OUTPUT_DIR_2
 import warnings
 import re
+import os
 
 logger = setup_logger()
 
 def process_ppt_file(file_path):
     warnings.filterwarnings("ignore", category=UserWarning, module="PIL.Image")
-    if not validate_file_type(file_path, ['.ppt', '.pptx', '.pot', '.potx', '.pps', '.ppsx', 'pptm', 'pdf']):
+    if not validate_file_type(file_path, ['.ppt', '.pptx', '.pot', '.potx', '.pps', '.ppsx', '.pptm', '.pdf']):
         logger.error(f"Invalid file type: {file_path}. Skipping.")
         return
 
     logger.info(f"Processing file: {file_path}")
     
     try:
+        # 判断文件格式
+        ext = os.path.splitext(file_path.lower())[1]
+        is_pptx = ext == '.pptx'
+
         # 提取元数据
+        # 这里假设 extract_metadata 只支持 .pptx，后续可扩展
         metadata = extract_metadata(file_path)
         metadata_output = "\n".join([f"{key}: {value}" for key, value in metadata.items()])
         logger.info("Metadata extracted successfully.")
         
         # 提取幻灯片文本
-        text_output = extract_text_from_ppt(file_path)
+        text_output = extract_text_from_ppt(file_path) if is_pptx else extract_text_from_ppt_legacy(file_path)
         if not text_output:
             logger.warning("No text extracted from PPT slides.")
         
         # 提取图片文本（使用 PaddleOCR）
         # image_output = extract_images_from_ppt_tesseract(file_path, OUTPUT_DIR_2)
-        image_output = extract_images_from_ppt_paddleocr(file_path, OUTPUT_DIR_2)
+        image_output = extract_images_from_ppt_paddleocr(file_path, OUTPUT_DIR_2) if is_pptx else extract_images_from_ppt_legacy(file_path, OUTPUT_DIR_2)
         if not image_output:
             logger.warning("No image text extracted.")
         
@@ -47,6 +53,7 @@ def process_ppt_file(file_path):
         
         # 保存结果
         output_file = f"{OUTPUT_DIR_2}/optimized_output.txt"
+        os.makedirs(OUTPUT_DIR_2, exist_ok=True)  # 确保输出目录存在
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(optimized_text)
         logger.info(f"File processed successfully: {output_file}")

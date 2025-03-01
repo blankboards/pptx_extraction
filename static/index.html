@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPT处理测试</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            max-width: 800px; /* 限制页面宽度，改善布局 */
+        }
+        textarea { 
+            width: 100%; 
+            height: 300px; 
+            margin-top: 10px; 
+            resize: vertical; /* 允许垂直调整大小 */
+            font-family: monospace; /* 使用等宽字体，便于查看文本 */
+        }
+        #status { 
+            color: green; 
+            margin-top: 10px; 
+            font-weight: bold; 
+        }
+        #error { 
+            color: red; 
+            margin-top: 10px; 
+            font-weight: bold; 
+        }
+        button { 
+            padding: 8px 16px; 
+            cursor: pointer; 
+        }
+        button:disabled { 
+            cursor: not-allowed; 
+            opacity: 0.6; /* 禁用时视觉反馈 */
+        }
+        p { 
+            font-size: 0.9em; 
+            color: #555; 
+        }
+    </style>
+</head>
+<body>
+    <h2>PPT文件处理测试</h2>
+    <input type="file" id="pptFile" accept=".ppt,.pptx,.pot,.potx,.pps,.ppsx,.pptm,.pdf">
+    <button id="uploadBtn" onclick="uploadFile()">上传并处理</button>
+    <p>支持的文件格式：PPT, PPTX, POT, POTX, PPS, PPSX, PPTM, PDF</p>
+    <div id="status"></div>
+    <div id="error"></div>
+    <textarea id="result" readonly placeholder="处理结果会显示在这里"></textarea>
+
+    <script>
+        // API 端点配置（便于修改）
+        const API_ENDPOINT = 'http://localhost:5000/api/process_ppt';
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('pptFile');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const statusDiv = document.getElementById('status');
+            const errorDiv = document.getElementById('error');
+            const resultTextarea = document.getElementById('result');
+
+            // 重置界面
+            statusDiv.textContent = '';
+            errorDiv.textContent = '';
+            resultTextarea.value = '';
+
+            // 检查文件是否选择
+            if (!fileInput.files.length) {
+                errorDiv.textContent = '请先选择一个文件';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // 禁用按钮，防止重复点击
+            uploadBtn.disabled = true;
+            statusDiv.textContent = '正在处理...';
+
+            try {
+                console.log(`Uploading file: ${file.name} (${file.size} bytes)`); // 调试信息
+
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    body: formData,
+                    // 可选：设置超时
+                    signal: AbortSignal.timeout(60000) // 30秒超时
+                });
+
+                const data = await response.json();
+                console.log('Server response:', data); // 调试信息
+
+                if (response.ok) {
+                    statusDiv.textContent = '处理成功！';
+                    resultTextarea.value = data.optimized_text || '无优化文本返回';
+                } else {
+                    throw new Error(data.error || `服务器错误 (状态码: ${response.status})`);
+                }
+            } catch (error) {
+                console.error('Fetch error:', error); // 记录详细错误
+                statusDiv.textContent = '';
+                errorDiv.textContent = `错误: ${error.message}`;
+                // 特殊处理网络错误
+                if (error.name === 'AbortError') {
+                    errorDiv.textContent = '错误: 请求超时，请检查文件大小或网络连接';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorDiv.textContent = '错误: 无法连接到服务器，请确保后端服务已启动 (http://localhost:5000)';
+                }
+            } finally {
+                // 恢复按钮状态
+                uploadBtn.disabled = false;
+            }
+        }
+
+        // 可选：添加文件选择时的实时反馈
+        document.getElementById('pptFile').addEventListener('change', function() {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = this.files.length ? '' : '请先选择一个文件';
+        });
+    </script>
+</body>
+</html>
