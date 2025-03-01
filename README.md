@@ -183,4 +183,4 @@ PPT_Text_Extractor/
 
 ## 联系方式
 - **邮箱**：zhanghoubing777@gmail.com
-- **GitHub**：https://github.com/blankboards/pptx_extraction
+- **GitHub**：https://github.com/BlairCode
