@@ -25,6 +25,6 @@ logs/
 Thumbs.db  # Windows
 
 # PPT
-.ppt
-.pptx
+*.ppt
+*.pptx
 PPT_SET/
