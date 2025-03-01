@@ -17,10 +17,8 @@ import socket
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
 LOG_FILE = os.getenv("LOG_FILE", "ppt_processor.log")
 logging.basicConfig(
     level=logging.INFO,
@@ -29,27 +27,22 @@ logging.basicConfig(
 )
 logger = setup_logger()
 
-# GPU option from environment variable (default to False if not set)
 USE_GPU = os.getenv("USE_GPU", "False").lower() in ("true", "1", "yes")
 logger.info(f"GPU enabled: {USE_GPU}")
 
-# Initialize Flask app with CORS and thread pool
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-executor = ThreadPoolExecutor(max_workers=1)  # 单线程池，避免资源竞争
+executor = ThreadPoolExecutor(max_workers=1)
 
-# Set project root and output directory
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 OUTPUT_DIR = os.path.abspath(os.getenv("OUTPUT_DIR", OUTPUT_DIR_2))
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     logger.info(f"Created output directory: {OUTPUT_DIR}")
 
-# Supported file formats
 SUPPORTED_FORMATS = ['.ppt', '.pptx', '.pot', '.potx', '.pps', '.ppsx', '.pptm', '.pdf']
 
 def clean_text_output(text_list):
-    """清理提取的文本，去除冗余信息（如水印）并优化结构"""
     try:
         cleaned_output = []
         watermark_pattern = re.compile(r'stablediffusionweb\.com')
@@ -66,7 +59,6 @@ def clean_text_output(text_list):
 
 @app.route('/')
 def serve_index():
-    """提供前端 index.html"""
     try:
         return send_from_directory(app.static_folder, 'index.html')
     except Exception as e:
@@ -75,14 +67,12 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """提供静态文件（如 favicon.ico）"""
     if os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
     return jsonify({"error": "File not found"}), 404
 
 @app.route('/api/process_ppt', methods=['POST'])
 def process_ppt():
-    """处理上传的PPT文件，提取内容并优化"""
     logger.info("Received POST request to /api/process_ppt")
     file_path = None
     try:
@@ -119,8 +109,10 @@ def process_ppt():
             metadata = extract_metadata(file_path) if is_pptx else extract_metadata_from_ppt_legacy(file_path)
             if "Error" in metadata:
                 logger.error(f"Metadata extraction failed: {metadata['Error']}")
-                raise Exception(f"Metadata extraction failed: {metadata['Error']}")
-            metadata_output = "\n".join([f"{key}: {value}" for key, value in metadata.items()])
+                metadata_output = "Metadata extraction failed\n"
+            else:
+                metadata_output = "\n".join([f"{key}: {value}" for key, value in metadata.items()])
+            logger.info("Metadata processed")
 
             text_output = extract_text_from_ppt(file_path) if is_pptx else extract_text_from_ppt_legacy(file_path)
             if not text_output:
@@ -177,12 +169,10 @@ def process_ppt():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """健康检查端点，用于验证服务器状态"""
     logger.info("Health check requested")
     return jsonify({"status": "healthy", "message": "PPT Processor server is running"}), 200
 
 def check_port(host, port):
-    """检查端口是否可用"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         try:
@@ -193,23 +183,19 @@ def check_port(host, port):
             return False
 
 if __name__ == "__main__":
-    # Configuration from environment variables with defaults
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 5000))
     MAX_PORT_ATTEMPTS = int(os.getenv("MAX_PORT_ATTEMPTS", 5))
 
-    # Ensure output and static directories exist
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     static_dir = os.path.join(PROJECT_ROOT, 'static')
     if not os.path.exists(static_dir):
         os.makedirs(static_dir, exist_ok=True)
         logger.info(f"Created static directory: {static_dir}")
 
-    # Ensure index.html exists in static folder
     if not os.path.exists(os.path.join(static_dir, 'index.html')):
         logger.warning("index.html not found in static folder. Please place it there.")
 
-    # Start server with port fallback
     try:
         for attempt in range(MAX_PORT_ATTEMPTS):
             if check_port(HOST, PORT):
