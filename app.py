@@ -36,11 +36,11 @@ logger.info(f"GPU enabled: {USE_GPU}")
 # Initialize Flask app with CORS and thread pool
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
-executor = ThreadPoolExecutor(max_workers=2)  # 线程池，限制并发
+executor = ThreadPoolExecutor(max_workers=1)  # 单线程池，避免资源竞争
 
 # Set project root and output directory
 PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
-OUTPUT_DIR = os.path.abspath(os.getenv("OUTPUT_DIR", OUTPUT_DIR_2))  # 使用绝对路径
+OUTPUT_DIR = os.path.abspath(os.getenv("OUTPUT_DIR", OUTPUT_DIR_2))
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     logger.info(f"Created output directory: {OUTPUT_DIR}")
@@ -86,7 +86,6 @@ def process_ppt():
     logger.info("Received POST request to /api/process_ppt")
     file_path = None
     try:
-        # Check if file is provided
         if 'file' not in request.files:
             logger.error("No file part in the request")
             return jsonify({"error": "No file uploaded"}), 400
@@ -96,19 +95,16 @@ def process_ppt():
             logger.error("No file selected")
             return jsonify({"error": "No file selected"}), 400
 
-        # Save uploaded file with absolute path
         file_path = os.path.abspath(os.path.join(OUTPUT_DIR, file.filename))
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)  # 确保目录存在
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         file.save(file_path)
         logger.info(f"File saved to absolute path: {file_path}")
 
-        # Validate file type
         if not validate_file_type(file_path, SUPPORTED_FORMATS):
             os.remove(file_path)
             logger.error(f"Invalid file type: {file.filename}. Supported formats: {SUPPORTED_FORMATS}")
             return jsonify({"error": f"Invalid file type: {file.filename}. Supported formats: {', '.join(SUPPORTED_FORMATS)}"}), 400
 
-        # Check if file exists
         if not os.path.exists(file_path):
             logger.error(f"File does not exist after saving: {file_path}")
             return jsonify({"error": "File save failed"}), 500
@@ -116,47 +112,33 @@ def process_ppt():
         logger.info(f"Starting processing for file: {file_path}")
         warnings.filterwarnings("ignore", category=UserWarning, module="PIL.Image")
 
-        # Asynchronous processing function
         def process_file(file_path):
             ext = os.path.splitext(file_path.lower())[1]
             is_pptx = ext == '.pptx'
 
-            # Extract metadata
             metadata = extract_metadata(file_path) if is_pptx else extract_metadata_from_ppt_legacy(file_path)
             if "Error" in metadata:
                 logger.error(f"Metadata extraction failed: {metadata['Error']}")
                 raise Exception(f"Metadata extraction failed: {metadata['Error']}")
             metadata_output = "\n".join([f"{key}: {value}" for key, value in metadata.items()])
 
-            # Extract slide text and images in one pass for legacy formats
-            if is_pptx:
-                text_output = extract_text_from_ppt(file_path)
-                image_output = extract_images_from_ppt_paddleocr(file_path, OUTPUT_DIR, use_gpu=USE_GPU)
-            else:
-                text_output = extract_text_from_ppt_legacy(file_path)
-                image_output = extract_images_from_ppt_legacy(file_path, OUTPUT_DIR, use_gpu=USE_GPU)
-
+            text_output = extract_text_from_ppt(file_path) if is_pptx else extract_text_from_ppt_legacy(file_path)
             if not text_output:
                 logger.warning("No text extracted from PPT slides")
                 text_output = []
+
+            image_output = extract_images_from_ppt_paddleocr(file_path, OUTPUT_DIR, use_gpu=USE_GPU) if is_pptx else extract_images_from_ppt_legacy(file_path, OUTPUT_DIR, use_gpu=USE_GPU)
             if not image_output:
                 logger.warning("No image text extracted")
                 image_output = []
 
-            # Clean and combine text
             cleaned_text_output = clean_text_output(text_output + image_output)
             combined_output = "\n".join([metadata_output] + cleaned_text_output)
             if not combined_output.strip():
                 logger.warning("No combined output generated")
                 combined_output = "No content extracted"
 
-            # Optimize text with AI
-            optimized_text = optimize_text_with_ai(combined_output)
-            if not optimized_text:
-                logger.warning("Text optimization returned empty, using combined output as fallback")
-                optimized_text = combined_output
-
-            # Save result
+            optimized_text = optimize_text_with_ai(combined_output) or combined_output
             output_file = os.path.abspath(os.path.join(OUTPUT_DIR, f"optimized_output_{file.filename}.txt"))
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(optimized_text)
@@ -164,11 +146,9 @@ def process_ppt():
 
             return optimized_text, output_file
 
-        # Run processing in a thread with timeout
         future = executor.submit(process_file, file_path)
-        optimized_text, output_file = future.result(timeout=120)  # 2 分钟超时
+        optimized_text, output_file = future.result(timeout=120)
 
-        # Clean up temporary file
         if os.path.exists(file_path):
             os.remove(file_path)
             logger.info(f"Temporary file removed: {file_path}")
@@ -204,6 +184,7 @@ def health_check():
 def check_port(host, port):
     """检查端口是否可用"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
         try:
             s.bind((host, port))
             return True
@@ -229,14 +210,18 @@ if __name__ == "__main__":
         logger.warning("index.html not found in static folder. Please place it there.")
 
     # Start server with port fallback
-    for attempt in range(MAX_PORT_ATTEMPTS):
-        if check_port(HOST, PORT):
-            logger.info(f"Starting Flask server on {HOST}:{PORT}")
-            app.run(host=HOST, port=PORT, debug=True, threaded=True)
-            break
+    try:
+        for attempt in range(MAX_PORT_ATTEMPTS):
+            if check_port(HOST, PORT):
+                logger.info(f"Starting Flask server on {HOST}:{PORT}")
+                app.run(host=HOST, port=PORT, debug=False, threaded=False)
+                break
+            else:
+                PORT += 1
+                logger.info(f"Trying next port: {PORT}")
         else:
-            PORT += 1
-            logger.info(f"Trying next port: {PORT}")
-    else:
-        logger.error(f"Failed to find an available port after {MAX_PORT_ATTEMPTS} attempts")
-        raise SystemExit(f"Startup failed: No available port found after {MAX_PORT_ATTEMPTS} attempts")
+            logger.error(f"Failed to find an available port after {MAX_PORT_ATTEMPTS} attempts")
+            raise SystemExit(f"Startup failed: No available port found after {MAX_PORT_ATTEMPTS} attempts")
+    except Exception as e:
+        logger.error(f"Server startup failed: {str(e)}")
+        raise
